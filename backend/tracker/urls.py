@@ -13,6 +13,15 @@ router.register('progress', views.ProgressViewSet)
 router.register('topic-progress', views.TopicProgressViewSet)
 router.register('notifications', views.NotificationViewSet)
 
+from django.contrib import admin
+from django.urls import path
+from .views import home
+
+urlpatterns = [
+    path('', home),
+    path('admin/', admin.site.urls),
+]
+
 urlpatterns = [
     path('', include(router.urls)),
     path('auth/login/', views.login_view),

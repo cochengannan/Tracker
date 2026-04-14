@@ -10,6 +10,10 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from datetime import date
 import io
+from django.http import HttpResponse
+
+def home(request):
+    return HttpResponse("Backend is working 🚀")
 
 from .models import Course, CoursePortion, Topic, Group, Student, Attendance, Progress, TopicProgress, Notification
 from .serializers import (CourseSerializer, CoursePortionSerializer, TopicSerializer,
