@@ -14,12 +14,16 @@ router.register('topic-progress', views.TopicProgressViewSet)
 router.register('notifications', views.NotificationViewSet)
 
 from django.contrib import admin
-from django.urls import path
-from .views import home
+from django.urls import path, include
+from django.http import HttpResponse
+
+def home(request):
+    return HttpResponse("Backend is running 🚀")
 
 urlpatterns = [
-    path('', home),
+    path('', home),  # ✅ ADD THIS LINE
     path('admin/', admin.site.urls),
+    path('api/', include('tracker.urls')),
 ]
 
 urlpatterns = [
