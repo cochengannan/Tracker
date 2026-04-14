@@ -8,3 +8,4 @@
 // Then run the build command which replaces this value automatically.
 
 const BACKEND_URL = window.__BACKEND_URL__ || 'http://localhost:8000';
+const BASE_URL = "https://tracker-1-2ui5.onrender.com";
