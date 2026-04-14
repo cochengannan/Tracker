@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Groups — Student Tracker</title>
+<style>
+.member-chip{display:inline-flex;align-items:center;gap:6px;background:#f0f4ff;color:#1a1a2e;border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500;margin:3px}
+.member-chip button{background:none;border:none;color:#e63946;cursor:pointer;font-size:14px;line-height:1;padding:0 0 0 2px}
+</style>
+</head>
+<body>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+if (!guardAdmin()) throw '';
+let groups=[], courses=[], allStudents=[];
+
+async function init() {
+  renderAdminLayout(`
+    <div class="page-header">
+      <div><h1 class="page-title">Groups</h1><p class="page-sub">Manage student batches</p></div>
+      <button class="btn-primary" onclick="openCreate()">+ Create Group</button>
+    </div>
+    <div id="grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px">
+      <div class="empty-state">Loading...</div>
+    </div>
+  `);
+  await loadData();
+}
+
+async function loadData() {
+  [groups, courses, allStudents] = await Promise.all([apiGet('/groups/'), apiGet('/courses/'), apiGet('/students/')]);
+  renderGroups();
+}
+
+function renderGroups() {
+  const el = document.getElementById('grid');
+  if (!groups.length) { el.innerHTML='<div class="empty-state" style="grid-column:1/-1">No groups yet.</div>'; return; }
+  el.innerHTML = groups.map(g => {
+    const members = allStudents.filter(s => s.group === g.id);
+    return `
+    <div class="panel" style="padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-weight:600;font-size:16px">🗂 ${esc(g.name)}</span>
+        <span style="font-size:12px;background:#ebf8ff;color:#2b6cb0;padding:3px 10px;border-radius:20px;font-weight:500">${members.length} students</span>
+      </div>
+      <div style="font-size:12px;color:#6c757d;margin-bottom:10px">Created: ${g.created_at}</div>
+
+      <!-- Members list -->
+      <div style="min-height:36px;margin-bottom:12px">
+        ${members.length
+          ? members.map(s=>`<span class="member-chip">
+              👤 ${esc(s.full_name)}
+              <button onclick="removeFromGroup(${s.id},'${esc(s.full_name)}')" title="Remove from group">×</button>
+            </span>`).join('')
+          : `<span style="font-size:12px;color:#adb5bd">No members yet.</span>`}
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn-primary" style="width:100%;padding:8px;font-size:13px" onclick="openAddStudents(${g.id},'${esc(g.name)}')">+ Add Students to Group</button>
+        <button class="btn-primary" style="width:100%;padding:8px;font-size:13px;background:#2ec4b6;border-color:#2ec4b6" onclick="openBulk(${g.id},'${esc(g.name)}')">📈 Bulk Progress Update</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── Create group ── */
+function openCreate() {
+  openModal(`${modalHeader('Create New Group')}
+    <div style="padding:20px 22px">
+      <form onsubmit="submitCreate(event)">
+        ${formField('Group Name',`<input class="inp" name="name" placeholder="e.g. Morning Batch" required/>`,true)}
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px">
+          <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+          <button type="submit" class="btn-primary">Create</button>
+        </div>
+      </form>
+    </div>`,380);
+}
+
+async function submitCreate(e) {
+  e.preventDefault();
+  const name = new FormData(e.target).get('name');
+  const res = await apiPost('/groups/', {name});
+  if (res.ok) { showToast('Group created!'); closeModal(); loadData(); }
+  else showToast('Failed to create group.','error');
+}
+
+/* ── Add students to group ── */
+function openAddStudents(groupId, groupName) {
+  // Students not already in this group
+  const notInGroup = allStudents.filter(s => s.group !== groupId);
+  const cOpts = `<option value="">All Courses</option>` + courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+
+  openModal(`${modalHeader('Add Students — ' + groupName)}
+    <div style="padding:20px 22px">
+      <div style="margin-bottom:12px">
+        <label style="font-size:13px;font-weight:500;color:#495057">Filter by Course</label>
+        <select class="inp" id="stuCourseFilter" style="margin-top:4px" onchange="filterStudentList(${groupId})">
+          ${cOpts}
+        </select>
+      </div>
+      <div style="margin-bottom:12px">
+        <input class="inp" id="stuSearch" placeholder="Search by name or enrollment..." oninput="filterStudentList(${groupId})"/>
+      </div>
+      <div id="stuCheckList" style="background:#f8f9fa;border-radius:8px;padding:10px 14px;max-height:260px;overflow-y:auto;margin-bottom:14px">
+        ${renderStudentChecks(notInGroup)}
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+        <button class="btn-primary" onclick="submitAddStudents(${groupId})">Add Selected</button>
+      </div>
+    </div>`,520);
+
+  // Store the available list for filtering
+  window._addStuPool = notInGroup;
+}
+
+function renderStudentChecks(list) {
+  if (!list.length) return `<div style="font-size:13px;color:#adb5bd;text-align:center;padding:12px">No students available.</div>`;
+  return list.map(s=>`
+    <label style="display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid #e9ecef;cursor:pointer;font-size:13px">
+      <input type="checkbox" name="stuCheck" value="${s.id}" style="width:15px;height:15px;accent-color:#4361ee"/>
+      <div>
+        <div style="font-weight:500">${esc(s.full_name)}</div>
+        <div style="font-size:11px;color:#6c757d">${esc(s.enrollment_number)} · ${esc(s.course_name||'No course')}</div>
+      </div>
+    </label>`).join('');
+}
+
+function filterStudentList(groupId) {
+  const courseId = Number(document.getElementById('stuCourseFilter').value);
+  const q = document.getElementById('stuSearch').value.toLowerCase();
+  let filtered = window._addStuPool || [];
+  if (courseId) filtered = filtered.filter(s => s.course === courseId);
+  if (q) filtered = filtered.filter(s => s.full_name.toLowerCase().includes(q) || s.enrollment_number.toLowerCase().includes(q));
+  document.getElementById('stuCheckList').innerHTML = renderStudentChecks(filtered);
+}
+
+async function submitAddStudents(groupId) {
+  const checked = [...document.querySelectorAll('input[name=stuCheck]:checked')].map(c=>Number(c.value));
+  if (!checked.length) { showToast('Select at least one student.','error'); return; }
+  // Update each student's group via PATCH
+  let ok = 0;
+  await Promise.all(checked.map(async sid => {
+    const res = await apiPatch(`/students/${sid}/`, {group: groupId});
+    if (res.ok) ok++;
+  }));
+  showToast(`${ok} student(s) added to group!`);
+  closeModal();
+  loadData();
+}
+
+async function removeFromGroup(studentId, name) {
+  if (!confirm(`Remove ${name} from this group?`)) return;
+  const res = await apiPatch(`/students/${studentId}/`, {group: null});
+  if (res.ok) { showToast(`${name} removed from group.`); loadData(); }
+  else showToast('Failed to remove student.','error');
+}
+
+/* ── Bulk progress ── */
+function openBulk(groupId, groupName) {
+  const cOpts = courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const today = new Date().toISOString().split('T')[0];
+  const members = allStudents.filter(s => s.group === groupId);
+  openModal(`${modalHeader('Bulk Progress — ' + groupName)}
+    <div style="padding:20px 22px">
+      ${members.length
+        ? `<div style="background:#f0fff4;border:1px solid #9ae6b4;border-radius:8px;padding:8px 14px;font-size:13px;color:#276749;margin-bottom:14px">
+            Will update <strong>${members.length} student(s)</strong>: ${members.map(s=>esc(s.full_name)).join(', ')}
+           </div>`
+        : `<div style="background:#fff5f5;border:1px solid #fed7d7;border-radius:8px;padding:8px 14px;font-size:13px;color:#c53030;margin-bottom:14px">
+            No students in this group yet.
+           </div>`}
+      <form onsubmit="submitBulk(event,${groupId})">
+        ${formField('Course',`<select class="inp" onchange="loadBulkPortions(this.value)"><option value="">Select course</option>${cOpts}</select>`,true)}
+        ${formField('Module',`<select class="inp" name="portion_id" id="bulkPortion" required><option value="">Select course first</option></select>`,true)}
+        ${formField('Completed On',`<input type="date" class="inp" name="completed_on" value="${today}"/>`,true)}
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px">
+          <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+          <button type="submit" class="btn-primary" ${!members.length?'disabled':''}>Apply to Group</button>
+        </div>
+      </form>
+    </div>`);
+}
+
+async function loadBulkPortions(cId) {
+  const sel = document.getElementById('bulkPortion');
+  if (!cId) { sel.innerHTML='<option value="">Select course first</option>'; return; }
+  const portions = await apiGet(`/portions/?course=${cId}`);
+  sel.innerHTML = portions.map(p=>`<option value="${p.id}">${esc(p.title)}</option>`).join('');
+}
+
+async function submitBulk(e, gId) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const res = await apiPost(`/groups/${gId}/bulk_progress/`, Object.fromEntries(fd.entries()));
+  if (res.ok) { showToast(res.data.message||'Updated!'); closeModal(); }
+  else showToast('Error updating group.','error');
+}
+
+init();
+</script>
+</body>
+</html>

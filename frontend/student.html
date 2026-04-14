@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>My Dashboard — Student Tracker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
+.topbar{background:#1a1a2e;color:#fff;padding:0 24px;display:flex;align-items:center;height:58px;gap:14px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.avatar{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+.spacer{flex:1}
+.bell-btn{position:relative;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.bell-dot{position:absolute;top:3px;right:3px;width:9px;height:9px;background:#e63946;border-radius:50%;border:2px solid #1a1a2e;display:none}
+.btn-logout{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit}
+.content{padding:20px 24px;max-width:960px;margin:0 auto}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+.stat-card{background:#fff;border-radius:10px;padding:16px 18px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.stat-label{font-size:10px;color:#6c757d;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;font-weight:600}
+.stat-val{font-size:20px;font-weight:700}
+.stat-sub{font-size:11px;color:#6c757d;margin-top:2px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow:hidden}
+.panel-head{padding:12px 16px;font-weight:600;border-bottom:1px solid #e9ecef;font-size:14px}
+.scroll-list{max-height:320px;overflow-y:auto}
+.list-item{display:flex;justify-content:space-between;align-items:center;padding:9px 16px;border-bottom:1px solid #f0f2f5;font-size:13px}
+.list-item:last-child{border-bottom:none}
+.empty{padding:24px;text-align:center;color:#6c757d;font-size:13px}
+/* Notification drawer */
+.notif-drawer{position:fixed;top:58px;right:0;width:320px;height:calc(100vh - 58px);background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,.12);z-index:200;transform:translateX(100%);transition:transform .25s ease;display:flex;flex-direction:column}
+.notif-drawer.open{transform:translateX(0)}
+.notif-head{padding:14px 18px;border-bottom:1px solid #e9ecef;font-weight:600;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.notif-scroll{flex:1;overflow-y:auto}
+.notif-item{padding:11px 16px;border-bottom:1px solid #f0f2f5;display:flex;gap:10px;align-items:flex-start}
+.notif-item.unread{background:#f8faff}
+.notif-msg{font-size:13px;font-weight:500;margin-bottom:2px;word-break:break-word}
+.notif-time{font-size:11px;color:#6c757d}
+/* Progress bars */
+.prog-section{padding:10px 16px;border-bottom:1px solid #f0f2f5}
+.prog-section:last-child{border-bottom:none}
+.prog-label{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px}
+.pbar-wrap{height:5px;background:#e9ecef;border-radius:3px;margin-bottom:6px}
+.pbar{height:100%;border-radius:3px;transition:width .4s}
+.topic-chips{display:flex;flex-wrap:wrap;gap:4px}
+.t-done{background:#e6fffa;color:#2c7a7b;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:500}
+.t-todo{background:#f0f2f5;color:#adb5bd;padding:3px 8px;border-radius:20px;font-size:11px}
+</style>
+</head>
+<body>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+if (!guardStudent()) throw '';
+
+const student = JSON.parse(localStorage.getItem('student') || 'null');
+if (!student) { localStorage.clear(); window.location.href='login.html'; }
+
+// student.course is an integer (the course ID)
+const studentCourseId = Number(student.course);
+const initials = (student.full_name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+let notifOpen = false;
+
+document.body.innerHTML = `
+  <div class="topbar">
+    <div class="avatar">${initials}</div>
+    <div style="min-width:0">
+      <div style="font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(student.full_name)}</div>
+      <div style="font-size:11px;opacity:.6">${esc(student.enrollment_number)} · ${esc(student.course_name||'No course')}</div>
+    </div>
+    <div class="spacer"></div>
+    <div style="font-size:11px;opacity:.5;letter-spacing:1px">STUDENT</div>
+    <button class="bell-btn" id="bellBtn" onclick="toggleNotif()" title="Notifications">
+      🔔<span class="bell-dot" id="bellDot"></span>
+    </button>
+    <button class="btn-logout" onclick="doStudentLogout()">Logout</button>
+  </div>
+
+  <!-- Notification drawer -->
+  <div class="notif-drawer" id="notifDrawer">
+    <div class="notif-head">
+      Notifications
+      <button onclick="toggleNotif()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#6c757d;line-height:1">×</button>
+    </div>
+    <div class="notif-scroll" id="notifScroll"><div class="empty">Loading...</div></div>
+  </div>
+  <div id="notifOverlay" style="display:none;position:fixed;inset:0;z-index:199;background:transparent" onclick="toggleNotif()"></div>
+
+  <div class="content">
+    <div class="stat-grid" id="statGrid"><div class="stat-card"><div class="stat-label">Loading</div><div class="stat-val">...</div></div></div>
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-head">📅 Recent Attendance</div>
+        <div class="scroll-list" id="attList"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">📈 Course Progress</div>
+        <div class="scroll-list" id="progPanel"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+  <div id="_toast" style="position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:500;z-index:9999;opacity:0;pointer-events:none;transition:opacity .3s"></div>
+`;
+
+async function loadAll() {
+  // Fetch all data in parallel
+  const [attData, topicProg, allCourses, unreadData] = await Promise.all([
+    apiGet(`/attendance/?student=${student.id}`),
+    apiGet(`/topic-progress/?student=${student.id}`),
+    apiGet('/courses/'),
+    apiGet('/my/unread/'),
+  ]);
+
+  // Bell dot for unread notifications
+  if ((unreadData.unread||0) > 0) {
+    document.getElementById('bellDot').style.display = 'block';
+  }
+
+  // Stats
+  const att30 = attData.slice(0, 30);
+  const present = att30.filter(a=>a.status==='present').length;
+  const total = att30.length;
+  const pct = total ? Math.round(present/total*100) : 0;
+  document.getElementById('statGrid').innerHTML = `
+    <div class="stat-card" style="border-top:3px solid #4361ee">
+      <div class="stat-label">Attendance</div>
+      <div class="stat-val" style="color:#4361ee">${present}/${total}</div>
+      <div class="stat-sub">${pct}% rate</div>
+    </div>
+    <div class="stat-card" style="border-top:3px solid #2ec4b6">
+      <div class="stat-label">Topics Done</div>
+      <div class="stat-val" style="color:#2ec4b6">${topicProg.length}</div>
+      <div class="stat-sub">completed</div>
+    </div>
+    <div class="stat-card" style="border-top:3px solid #f4a261">
+      <div class="stat-label">Course</div>
+      <div class="stat-val" style="font-size:14px">${esc(student.course_name||'—')}</div>
+      <div class="stat-sub">enrolled</div>
+    </div>
+    <div class="stat-card" style="border-top:3px solid #9b5de5">
+      <div class="stat-label">Group</div>
+      <div class="stat-val" style="font-size:14px">${esc(student.group_name||'None')}</div>
+      <div class="stat-sub">batch</div>
+    </div>`;
+
+  // Attendance list
+  document.getElementById('attList').innerHTML = !att30.length
+    ? '<div class="empty">No attendance records yet.</div>'
+    : att30.map(a=>`
+      <div class="list-item">
+        <div>
+          <div style="font-weight:500">${a.date}</div>
+          <div style="color:#6c757d;font-size:11px;margin-top:1px">${fmtTime(a.login_time)}${a.logout_time?' → '+fmtTime(a.logout_time):''}</div>
+        </div>
+        <span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;${a.status==='present'?'background:#e6fffa;color:#2c7a7b':'background:#fff5f5;color:#c53030'}">${a.status}</span>
+      </div>`).join('');
+
+  // Topic progress vs course structure
+  // FIX: compare as Number to avoid string/int mismatch
+  const myCourse = allCourses.find(c => Number(c.id) === studentCourseId);
+  if (!myCourse || !studentCourseId) {
+    document.getElementById('progPanel').innerHTML='<div class="empty">No course assigned yet.</div>';
+    return;
+  }
+  const doneSet = new Set(topicProg.map(t => Number(t.topic)));
+  let html = '';
+  const portions = myCourse.portions || [];
+  if (!portions.length) {
+    document.getElementById('progPanel').innerHTML='<div class="empty">No modules in your course yet.</div>';
+    return;
+  }
+  portions.forEach(portion => {
+    const topics = portion.topics || [];
+    if (!topics.length) return;
+    const done = topics.filter(t => doneSet.has(Number(t.id))).length;
+    const p = topics.length ? Math.round(done/topics.length*100) : 0;
+    html += `<div class="prog-section">
+      <div class="prog-label">
+        <span style="font-weight:500">${esc(portion.title)}</span>
+        <span style="color:#6c757d">${done}/${topics.length}</span>
+      </div>
+      <div class="pbar-wrap"><div class="pbar" style="width:${p}%;background:${p===100?'#2ec4b6':'#4361ee'}"></div></div>
+      <div class="topic-chips">
+        ${topics.map(t => doneSet.has(Number(t.id))
+          ? `<span class="t-done">✓ ${esc(t.title)}</span>`
+          : `<span class="t-todo">${esc(t.title)}</span>`
+        ).join('')}
+      </div>
+    </div>`;
+  });
+  document.getElementById('progPanel').innerHTML = html || '<div class="empty">No modules yet.</div>';
+}
+
+async function toggleNotif() {
+  notifOpen = !notifOpen;
+  document.getElementById('notifDrawer').classList.toggle('open', notifOpen);
+  document.getElementById('notifOverlay').style.display = notifOpen ? 'block' : 'none';
+  if (notifOpen) {
+    document.getElementById('bellDot').style.display = 'none';
+    document.getElementById('notifScroll').innerHTML = '<div class="empty">Loading...</div>';
+    const notifs = await apiGet('/my/notifications/');
+    const icons = { login:'🟢', logout:'🔴', absent:'⚠️', general:'📢' };
+    document.getElementById('notifScroll').innerHTML = !notifs.length
+      ? '<div class="empty">No notifications yet.</div>'
+      : notifs.map(n=>`
+        <div class="notif-item${n.is_read?'':' unread'}">
+          <span style="font-size:16px;flex-shrink:0">${icons[n.type]||'📢'}</span>
+          <div>
+            <div class="notif-msg">${esc(n.message)}</div>
+            <div class="notif-time">${fmtDate(n.sent_at)}</div>
+          </div>
+        </div>`).join('');
+  }
+}
+
+async function doStudentLogout() {
+  try { await apiFetch('/auth/logout/', { method:'POST' }); } catch {}
+  localStorage.clear(); window.location.href = 'login.html';
+}
+
+loadAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+# render.yaml — Deploy both services from one file
+# Commit this to your GitHub repo root
+
+services:
+  # ── Django Backend (Web Service) ─────────────────────────────────────────
+  - type: web
+    name: student-tracker-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true          # Render auto-generates a secure key
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com,localhost"
+      - key: CORS_ALLOW_ALL_ORIGINS
+        value: "True"                # Set to False after you know your frontend URL
+      - key: DJANGO_SUPERUSER_USERNAME
+        value: admin
+      - key: DJANGO_SUPERUSER_PASSWORD
+        value: admin123              # Change this after first deploy!
+      - key: DJANGO_SUPERUSER_EMAIL
+        value: admin@example.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: student-tracker-db
+          property: connectionString
+    plan: free
+
+  # ── Frontend (Static Site) ───────────────────────────────────────────────
+  - type: web
+    name: student-tracker-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: "bash build.sh"
+    staticPublishPath: .
+    envVars:
+      - key: BACKEND_URL
+        value: "https://student-tracker-backend.onrender.com"  # Update after backend deploys
+
+# ── PostgreSQL Database ──────────────────────────────────────────────────────
+databases:
+  - name: student-tracker-db
+    plan: free
+    databaseName: student_tracker
+    user: student_tracker_user

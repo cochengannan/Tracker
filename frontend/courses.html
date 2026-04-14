@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Courses — Student Tracker</title>
+<style>
+.course-block{background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;overflow:hidden}
+.course-head{padding:14px 20px;background:#f8f9fa;border-bottom:1px solid #e9ecef;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.portion-row{border-bottom:1px solid #f0f2f5}
+.portion-row:last-child{border-bottom:none}
+.portion-head{padding:10px 20px 10px 32px;display:flex;justify-content:space-between;align-items:center;background:#fafbfc;border-bottom:1px solid #f0f2f5}
+.topic-area{padding:8px 20px 10px 44px;display:flex;flex-wrap:wrap;gap:6px}
+.topic-chip{display:inline-flex;align-items:center;gap:4px;background:#f0f4ff;color:#4361ee;border-radius:20px;padding:4px 10px 4px 12px;font-size:12px;font-weight:500}
+.btn-edit{background:#fff;border:1px solid #4361ee;color:#4361ee;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:500}
+.btn-edit:hover{background:#f0f4ff}
+</style>
+</head>
+<body>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+if (!guardAdmin()) throw '';
+
+async function init() {
+  renderAdminLayout(`
+    <div class="page-header">
+      <div><h1 class="page-title">Courses</h1><p class="page-sub">Manage courses → modules → topics</p></div>
+      <button class="btn-primary" onclick="openAddCourse()">+ Add Course</button>
+    </div>
+    <div id="courseList"><div class="empty-state">Loading...</div></div>
+  `);
+  loadCourses();
+}
+
+async function loadCourses() {
+  const courses = await apiGet('/courses/');
+  const el = document.getElementById('courseList');
+  if (!courses.length) { el.innerHTML='<div class="panel empty-state">No courses yet. Add your first course!</div>'; return; }
+
+  el.innerHTML = courses.map(c => `
+    <div class="course-block">
+      <div class="course-head">
+        <div>
+          <div style="font-weight:600;font-size:16px">📚 ${esc(c.name)}</div>
+          ${c.description ? `<div style="font-size:13px;color:#6c757d;margin-top:2px">${esc(c.description)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          <span style="font-size:11px;background:#fff;color:#6c757d;padding:3px 10px;border-radius:20px;border:1px solid #e9ecef;white-space:nowrap">
+            ${c.student_count} students · ${(c.portions||[]).length} modules
+          </span>
+          <button class="btn-edit" data-edit-course="${c.id}" data-name="${esc(c.name)}" data-desc="${esc(c.description||'')}">✏ Edit</button>
+          <button class="btn-blue" data-course-id="${c.id}">+ Module</button>
+          <button class="btn-danger" data-del-course="${c.id}">Delete</button>
+        </div>
+      </div>
+      ${!(c.portions||[]).length
+        ? `<div style="padding:14px 20px;font-size:13px;color:#adb5bd">No modules yet.</div>`
+        : (c.portions||[]).map((p, pi) => `
+          <div class="portion-row">
+            <div class="portion-head">
+              <span style="font-size:14px;font-weight:500">
+                <span style="color:#adb5bd;font-size:11px;margin-right:6px">${pi+1}.</span>
+                ${esc(p.title)}
+                <span style="font-size:11px;color:#6c757d;margin-left:6px">(${p.topic_count} topics)</span>
+              </span>
+              <div style="display:flex;gap:6px">
+                <button class="btn-edit" data-edit-portion="${p.id}" data-ptitle="${esc(p.title)}" data-porder="${p.order_index}">✏ Edit</button>
+                <button class="btn-green" data-portion-id="${p.id}" data-portion-title="${esc(p.title)}">+ Topic</button>
+                <button class="btn-danger" data-del-portion="${p.id}">Remove</button>
+              </div>
+            </div>
+            <div class="topic-area">
+              ${!(p.topics||[]).length
+                ? `<span style="font-size:12px;color:#adb5bd">No topics yet.</span>`
+                : (p.topics||[]).map((t, ti) => `
+                  <div class="topic-chip">
+                    <span style="color:#a0aec0;font-size:10px">${ti+1}.</span>
+                    ${esc(t.title)}
+                    <button style="background:none;border:none;color:#4361ee;cursor:pointer;font-size:12px;padding:0 2px" data-edit-topic="${t.id}" data-ttitle="${esc(t.title)}" data-tdesc="${esc(t.description||'')}" data-torder="${t.order_index}" title="Edit">✏</button>
+                    <button class="btn-ghost-del" data-del-topic="${t.id}" title="Remove">×</button>
+                  </div>`).join('')}
+            </div>
+          </div>`).join('')}
+    </div>`).join('');
+
+  el.querySelectorAll('[data-course-id]').forEach(btn =>
+    btn.addEventListener('click', () => openAddPortion(Number(btn.dataset.courseId))));
+  el.querySelectorAll('[data-del-course]').forEach(btn =>
+    btn.addEventListener('click', () => deleteCourse(Number(btn.dataset.delCourse))));
+  el.querySelectorAll('[data-portion-id]').forEach(btn =>
+    btn.addEventListener('click', () => openAddTopic(Number(btn.dataset.portionId), btn.dataset.portionTitle)));
+  el.querySelectorAll('[data-del-portion]').forEach(btn =>
+    btn.addEventListener('click', () => deletePortion(Number(btn.dataset.delPortion))));
+  el.querySelectorAll('[data-del-topic]').forEach(btn =>
+    btn.addEventListener('click', () => deleteTopic(Number(btn.dataset.delTopic))));
+  el.querySelectorAll('[data-edit-course]').forEach(btn =>
+    btn.addEventListener('click', () => openEditCourse(Number(btn.dataset.editCourse), btn.dataset.name, btn.dataset.desc)));
+  el.querySelectorAll('[data-edit-portion]').forEach(btn =>
+    btn.addEventListener('click', () => openEditPortion(Number(btn.dataset.editPortion), btn.dataset.ptitle, btn.dataset.porder)));
+  el.querySelectorAll('[data-edit-topic]').forEach(btn =>
+    btn.addEventListener('click', () => openEditTopic(Number(btn.dataset.editTopic), btn.dataset.ttitle, btn.dataset.tdesc, btn.dataset.torder)));
+}
+
+/* ── ADD ── */
+function openAddCourse() {
+  openModal(`${modalHeader('Add Course')}
+    <div style="padding:20px 22px"><form id="courseForm">
+      ${formField('Course Name',`<input class="inp" id="cName" placeholder="e.g. Python Basics" required/>`,true)}
+      ${formField('Description',`<textarea class="inp" id="cDesc" rows="2" style="resize:vertical" placeholder="Optional description"></textarea>`)}
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+        <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+        <button type="submit" class="btn-primary">Add Course</button>
+      </div>
+    </form></div>`,420);
+  document.getElementById('courseForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const res = await apiPost('/courses/', {name:document.getElementById('cName').value, description:document.getElementById('cDesc').value});
+    if (res.ok) { showToast('Course added!'); closeModal(); loadCourses(); }
+    else showToast('Failed to add course.','error');
+  });
+}
+
+function openAddPortion(courseId) {
+  openModal(`${modalHeader('Add Module')}
+    <div style="padding:20px 22px"><form id="portionForm">
+      ${formField('Module Title',`<input class="inp" id="pTitle" placeholder="e.g. Introduction to Python" required/>`,true)}
+      ${formField('Order',`<input type="number" class="inp" id="pOrder" value="1" min="1"/>`)}
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+        <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+        <button type="submit" class="btn-primary">Add Module</button>
+      </div>
+    </form></div>`,400);
+  document.getElementById('portionForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const res = await apiPost('/portions/', {course:courseId, title:document.getElementById('pTitle').value, order_index:document.getElementById('pOrder').value});
+    if (res.ok) { showToast('Module added!'); closeModal(); loadCourses(); }
+    else showToast('Failed to add module.','error');
+  });
+}
+
+function openAddTopic(portionId, portionTitle) {
+  openModal(`${modalHeader('Add Topic — '+portionTitle)}
+    <div style="padding:20px 22px"><form id="topicForm">
+      ${formField('Topic Title',`<input class="inp" id="tTitle" placeholder="e.g. Variables and Data Types" required/>`,true)}
+      ${formField('Description',`<textarea class="inp" id="tDesc" rows="2" style="resize:vertical" placeholder="Optional details"></textarea>`)}
+      ${formField('Order',`<input type="number" class="inp" id="tOrder" value="1" min="1"/>`)}
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+        <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+        <button type="submit" class="btn-primary">Add Topic</button>
+      </div>
+    </form></div>`,420);
+  document.getElementById('topicForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const res = await apiPost('/topics/', {portion:portionId, title:document.getElementById('tTitle').value, description:document.getElementById('tDesc').value, order_index:document.getElementById('tOrder').value});
+    if (res.ok) { showToast('Topic added!'); closeModal(); loadCourses(); }
+    else showToast('Failed to add topic.','error');
+  });
+}
+
+/* ── EDIT ── */
+function openEditCourse(id, name, desc) {
+  openModal(`${modalHeader('Edit Course')}
+    <div style="padding:20px 22px"><form id="editCourseForm">
+      ${formField('Course Name',`<input class="inp" id="ecName" value="${name}" required/>`,true)}
+      ${formField('Description',`<textarea class="inp" id="ecDesc" rows="2" style="resize:vertical">${desc}</textarea>`)}
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+        <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+        <button type="submit" class="btn-primary">Save Changes</button>
+      </div>
+    </form></div>`,420);
+  document.getElementById('editCourseForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const res = await apiPatch(`/courses/${id}/`, {name:document.getElementById('ecName').value, description:document.getElementById('ecDesc').value});
+    if (res.ok) { showToast('Course updated!'); closeModal(); loadCourses(); }
+    else showToast('Failed to update course.','error');
+  });
+}
+
+function openEditPortion(id, title, order) {
+  openModal(`${modalHeader('Edit Module')}
+    <div style="padding:20px 22px"><form id="editPortionForm">
+      ${formField('Module Title',`<input class="inp" id="epTitle" value="${title}" required/>`,true)}
+      ${formField('Order',`<input type="number" class="inp" id="epOrder" value="${order}" min="1"/>`)}
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+        <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+        <button type="submit" class="btn-primary">Save Changes</button>
+      </div>
+    </form></div>`,400);
+  document.getElementById('editPortionForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const res = await apiPatch(`/portions/${id}/`, {title:document.getElementById('epTitle').value, order_index:document.getElementById('epOrder').value});
+    if (res.ok) { showToast('Module updated!'); closeModal(); loadCourses(); }
+    else showToast('Failed to update module.','error');
+  });
+}
+
+function openEditTopic(id, title, desc, order) {
+  openModal(`${modalHeader('Edit Topic')}
+    <div style="padding:20px 22px"><form id="editTopicForm">
+      ${formField('Topic Title',`<input class="inp" id="etTitle" value="${title}" required/>`,true)}
+      ${formField('Description',`<textarea class="inp" id="etDesc" rows="2" style="resize:vertical">${desc}</textarea>`)}
+      ${formField('Order',`<input type="number" class="inp" id="etOrder" value="${order}" min="1"/>`)}
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+        <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+        <button type="submit" class="btn-primary">Save Changes</button>
+      </div>
+    </form></div>`,420);
+  document.getElementById('editTopicForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const res = await apiPatch(`/topics/${id}/`, {title:document.getElementById('etTitle').value, description:document.getElementById('etDesc').value, order_index:document.getElementById('etOrder').value});
+    if (res.ok) { showToast('Topic updated!'); closeModal(); loadCourses(); }
+    else showToast('Failed to update topic.','error');
+  });
+}
+
+/* ── DELETE ── */
+async function deleteCourse(id) {
+  if (!confirm('Delete this course? All modules and topics will be removed.')) return;
+  await apiDelete(`/courses/${id}/`); showToast('Course deleted.'); loadCourses();
+}
+async function deletePortion(id) {
+  if (!confirm('Remove this module and its topics?')) return;
+  await apiDelete(`/portions/${id}/`); showToast('Module removed.'); loadCourses();
+}
+async function deleteTopic(id) {
+  if (!confirm('Remove this topic?')) return;
+  await apiDelete(`/topics/${id}/`); showToast('Topic removed.'); loadCourses();
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Student Tracker — Login</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)}
+.wrap{width:100%;max-width:480px;padding:16px}
+.card{background:#fff;border-radius:16px;padding:36px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.logo{text-align:center;margin-bottom:24px}
+.logo .ico{font-size:40px;margin-bottom:8px}
+.logo h1{font-size:22px;font-weight:700;color:#1a1a2e;margin-bottom:4px}
+.logo p{color:#6c757d;font-size:14px}
+label{display:block;font-size:13px;font-weight:500;margin-bottom:5px;color:#495057}
+input,select{width:100%;padding:10px 12px;border:1.5px solid #dee2e6;border-radius:8px;font-size:14px;outline:none;font-family:inherit;transition:border-color .15s;background:#fff}
+input:focus,select:focus{border-color:#4361ee}
+.field{margin-bottom:14px}
+.btn{width:100%;padding:11px;background:#1a1a2e;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn:hover{background:#16213e}
+.btn:disabled{background:#a0aec0;cursor:not-allowed}
+.btn-ghost{width:100%;padding:10px;background:transparent;color:#4361ee;border:1.5px solid #4361ee;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;margin-top:10px}
+.btn-ghost:hover{background:#f0f4ff}
+.err{background:#fff5f5;border:1px solid #fed7d7;color:#c53030;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;display:none}
+.ok{background:#f0fff4;border:1px solid #9ae6b4;color:#276749;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;display:none}
+.demo{margin-top:14px;padding:10px 14px;background:#f8f9fa;border-radius:8px;font-size:12px;color:#6c757d}
+.demo code{background:#e9ecef;padding:2px 5px;border-radius:4px}
+.divider{display:flex;align-items:center;gap:10px;margin:14px 0;color:#adb5bd;font-size:12px}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:#e9ecef}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+  <div class="logo">
+    <div class="ico">🎓</div>
+    <h1>Student Tracker</h1>
+    <p id="subtitle">Sign in to continue</p>
+  </div>
+
+  <!-- LOGIN -->
+  <div id="loginView">
+    <div class="err" id="lErr"></div>
+    <div class="field"><label>Username</label><input id="lUser" type="text" placeholder="Enter your username"/></div>
+    <div class="field"><label>Password</label><input id="lPass" type="password" placeholder="Enter your password"/></div>
+    <button class="btn" id="lBtn" onclick="doLogin()">Sign In</button>
+    <div class="divider">New student?</div>
+    <button class="btn-ghost" onclick="show('reg')">Create an account</button>
+    <div class="demo"><strong>Admin:</strong> <code>admin</code> / <code>admin123</code></div>
+  </div>
+
+  <!-- REGISTER -->
+  <div id="regView" style="display:none">
+    <div class="err" id="rErr"></div>
+    <div class="ok" id="rOk"></div>
+    <div class="g2">
+      <div class="field"><label>Full Name *</label><input id="rName" placeholder="Your full name"/></div>
+      <div class="field"><label>Enrollment No. *</label><input id="rEnroll" placeholder="e.g. EN2024001"/></div>
+      <div class="field"><label>Username *</label><input id="rUser" placeholder="Choose a username"/></div>
+      <div class="field"><label>Password *</label><input id="rPass" type="password" placeholder="Min 6 characters"/></div>
+      <div class="field" style="grid-column:1/-1">
+        <label>Course *</label>
+        <select id="rCourse"><option value="">Loading courses...</option></select>
+      </div>
+      <div class="field"><label>Primary Contact *</label><input id="rPhone" placeholder="Mobile number"/></div>
+      <div class="field"><label>WhatsApp Number *</label><input id="rWA" placeholder="WhatsApp number"/></div>
+      <div class="field" style="grid-column:1/-1"><label>Date of Joining *</label><input id="rDOJ" type="date"/></div>
+    </div>
+    <button class="btn" id="rBtn" onclick="doRegister()">Create Account</button>
+    <div class="divider">already registered?</div>
+    <button class="btn-ghost" onclick="show('login')">Sign In</button>
+  </div>
+</div>
+</div>
+
+<script src="config.js"></script>
+<script>
+const API = (typeof BACKEND_URL !== 'undefined' ? BACKEND_URL : 'http://localhost:8000') + '/api';
+if (localStorage.getItem('token'))
+  window.location.href = localStorage.getItem('isAdmin')==='true' ? 'dashboard.html' : 'student.html';
+
+async function loadCourses() {
+  const sel = document.getElementById('rCourse');
+  sel.innerHTML = '<option value="">Loading courses...</option>';
+  sel.disabled = true;
+  try {
+    const r = await fetch(`${API}/courses/`, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) throw new Error('Server error');
+    const list = await r.json();
+    if (!list.length) {
+      sel.innerHTML = '<option value="">No courses available — ask admin</option>';
+    } else {
+      sel.innerHTML = '<option value="">Select your course</option>' +
+        list.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    }
+    sel.disabled = false;
+  } catch {
+    sel.innerHTML = '<option value="">⚠ Backend offline — start the server first</option>';
+    sel.disabled = false;
+    // Show a retry button below the select
+    const existing = document.getElementById('courseRetryBtn');
+    if (!existing) {
+      const btn = document.createElement('button');
+      btn.id = 'courseRetryBtn';
+      btn.type = 'button';
+      btn.textContent = '🔄 Retry loading courses';
+      btn.style.cssText = 'margin-top:6px;padding:6px 12px;font-size:12px;background:#f0f4ff;border:1.5px solid #4361ee;color:#4361ee;border-radius:6px;cursor:pointer;font-family:inherit;width:100%';
+      btn.onclick = () => { btn.remove(); loadCourses(); };
+      sel.parentNode.appendChild(btn);
+    }
+  }
+}
+loadCourses();
+
+function show(view) {
+  document.getElementById('loginView').style.display = view==='login' ? 'block' : 'none';
+  document.getElementById('regView').style.display   = view==='reg'   ? 'block' : 'none';
+  document.getElementById('subtitle').textContent = view==='login' ? 'Sign in to continue' : 'Create your student account';
+  document.getElementById('lErr').style.display='none';
+  document.getElementById('rErr').style.display='none';
+  document.getElementById('rOk').style.display='none';
+}
+
+async function doLogin() {
+  const err = document.getElementById('lErr');
+  const btn = document.getElementById('lBtn');
+  const username = document.getElementById('lUser').value.trim();
+  const password = document.getElementById('lPass').value;
+  err.style.display='none';
+  if (!username||!password) { err.textContent='Enter username and password.'; err.style.display='block'; return; }
+  btn.disabled=true; btn.textContent='Signing in...';
+  try {
+    const res = await fetch(`${API}/auth/login/`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+    const d = await res.json();
+    if (!res.ok) { err.textContent=d.error||'Invalid credentials.'; err.style.display='block'; return; }
+    localStorage.setItem('token',d.token); localStorage.setItem('isAdmin',d.is_admin);
+    localStorage.setItem('username',d.username); localStorage.setItem('student',JSON.stringify(d.student));
+    window.location.href = d.is_admin ? 'dashboard.html' : 'student.html';
+  } catch { err.textContent='Cannot reach server. Is Django running on port 8000?'; err.style.display='block'; }
+  finally { btn.disabled=false; btn.textContent='Sign In'; }
+}
+
+async function doRegister() {
+  const err = document.getElementById('rErr');
+  const ok  = document.getElementById('rOk');
+  const btn = document.getElementById('rBtn');
+  err.style.display='none'; ok.style.display='none';
+  const body = {
+    username: document.getElementById('rUser').value.trim(),
+    password: document.getElementById('rPass').value,
+    full_name: document.getElementById('rName').value.trim(),
+    enrollment_number: document.getElementById('rEnroll').value.trim(),
+    course: document.getElementById('rCourse').value,
+    primary_contact: document.getElementById('rPhone').value.trim(),
+    whatsapp_number: document.getElementById('rWA').value.trim(),
+    date_of_joining: document.getElementById('rDOJ').value,
+  };
+  if (!body.username || !body.password || !body.full_name || !body.enrollment_number || !body.course || !body.primary_contact || !body.date_of_joining) {
+    err.textContent = !body.course ? 'Please select a course. Make sure the backend server is running and retry.' : 'Please fill in all required fields.';
+    err.style.display = 'block'; return;
+  }
+  btn.disabled=true; btn.textContent='Creating account...';
+  try {
+    const res = await fetch(`${API}/auth/register/`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d = await res.json();
+    if (!res.ok) {
+      const msgs = d.errors ? Object.values(d.errors).flat().join(' ') : (d.detail||'Registration failed.');
+      err.textContent=msgs; err.style.display='block'; return;
+    }
+    // Auto-login after registration
+    const lr = await fetch(`${API}/auth/login/`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:body.username,password:body.password})});
+    const ld = await lr.json();
+    if (lr.ok) {
+      localStorage.setItem('token',ld.token); localStorage.setItem('isAdmin',ld.is_admin);
+      localStorage.setItem('username',ld.username); localStorage.setItem('student',JSON.stringify(ld.student));
+      window.location.href='student.html';
+    } else { ok.textContent='Account created! Please sign in.'; ok.style.display='block'; show('login'); }
+  } catch { err.textContent='Cannot reach server.'; err.style.display='block'; }
+  finally { btn.disabled=false; btn.textContent='Create Account'; }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key==='Enter') {
+    if (document.getElementById('loginView').style.display!=='none') doLogin(); else doRegister();
+  }
+});
+</script>
+</body>
+</html>

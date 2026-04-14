@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Progress — Student Tracker</title>
+<style>
+.tab-bar{display:flex;gap:0;background:#fff;border-radius:10px;padding:4px;box-shadow:0 1px 3px rgba(0,0,0,.08);width:fit-content;margin-bottom:20px}
+.tab{padding:8px 20px;border-radius:7px;border:none;background:transparent;font-size:14px;font-weight:500;cursor:pointer;color:#6c757d;transition:all .15s}
+.tab.active{background:#1a1a2e;color:#fff}
+.stu-block{background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:14px;overflow:hidden}
+.stu-head{padding:12px 20px;background:#f8f9fa;border-bottom:1px solid #e9ecef;display:flex;justify-content:space-between;align-items:center}
+.portion-section{padding:10px 20px;border-bottom:1px solid #f0f2f5}
+.portion-section:last-child{border-bottom:none}
+.topic-check-item{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f8f9fa;font-size:13px;cursor:pointer}
+.topic-check-item:last-child{border-bottom:none}
+.topic-check-item input[type=checkbox]{width:16px;height:16px;accent-color:#4361ee;cursor:pointer;flex-shrink:0}
+.group-badge{font-size:11px;background:#fdf3ff;color:#805ad5;padding:3px 10px;border-radius:20px;font-weight:500;border:1px solid #e9d8fd}
+</style>
+</head>
+<body>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+if (!guardAdmin()) throw '';
+let students=[], courses=[], groups=[], curTab='topic';
+
+async function init() {
+  renderAdminLayout(`
+    <div class="page-header">
+      <div><h1 class="page-title">Progress Tracking</h1><p class="page-sub">Track module and topic completion per student</p></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-primary" onclick="openGroupBulk()">📈 Group Bulk Update</button>
+        <button class="btn-primary" onclick="openMark()">+ Mark Progress</button>
+      </div>
+    </div>
+    <div class="tab-bar">
+      <button class="tab active" id="tabTopic" onclick="switchTab('topic')">Topic Progress</button>
+      <button class="tab" id="tabModule" onclick="switchTab('module')">Module Progress</button>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <select class="inp" id="stuFilter" style="min-width:180px;width:auto" onchange="loadProgress()">
+        <option value="">All Students</option>
+      </select>
+      <select class="inp" id="groupFilter" style="min-width:160px;width:auto" onchange="onGroupFilterChange()">
+        <option value="">All Groups</option>
+      </select>
+      <select class="inp" id="courseFilter" style="min-width:180px;width:auto" onchange="loadProgress()">
+        <option value="">All Courses</option>
+      </select>
+    </div>
+    <div id="progressList"><div class="empty-state">Loading...</div></div>
+  `);
+
+  [students, courses, groups] = await Promise.all([apiGet('/students/'), apiGet('/courses/'), apiGet('/groups/')]);
+
+  const sf=document.getElementById('stuFilter');
+  const gf=document.getElementById('groupFilter');
+  const cf=document.getElementById('courseFilter');
+  students.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.full_name+(s.group_name?` (${s.group_name})`:'');sf.appendChild(o);});
+  groups.forEach(g=>{const o=document.createElement('option');o.value=g.id;o.textContent=`🗂 ${g.name}`;gf.appendChild(o);});
+  courses.forEach(c=>{const o=document.createElement('option');o.value=c.id;o.textContent=c.name;cf.appendChild(o);});
+  loadProgress();
+}
+
+function switchTab(tab) {
+  curTab=tab;
+  document.getElementById('tabTopic').className='tab'+(tab==='topic'?' active':'');
+  document.getElementById('tabModule').className='tab'+(tab==='module'?' active':'');
+  loadProgress();
+}
+
+function onGroupFilterChange() {
+  // When a group is selected, clear individual student filter
+  const gId = document.getElementById('groupFilter').value;
+  if (gId) document.getElementById('stuFilter').value='';
+  loadProgress();
+}
+
+async function loadProgress() {
+  const sId=document.getElementById('stuFilter').value;
+  const cId=document.getElementById('courseFilter').value;
+  const gId=document.getElementById('groupFilter').value;
+  const el=document.getElementById('progressList');
+  el.innerHTML='<div class="empty-state">Loading...</div>';
+
+  // Build student id set for group filter
+  let groupStudentIds = null;
+  if (gId) {
+    groupStudentIds = new Set(students.filter(s=>String(s.group)===String(gId)).map(s=>s.id));
+    if (!groupStudentIds.size) {
+      el.innerHTML='<div class="panel empty-state">No students in this group yet.</div>';
+      return;
+    }
+  }
+
+  if (curTab==='topic') {
+    let url='/topic-progress/?';
+    if (sId) url+=`student=${sId}&`;
+    if (cId) url+=`course=${cId}&`;
+    const records=await apiGet(url);
+    const filtered = gId ? records.filter(r=>groupStudentIds.has(r.student)) : records;
+    if (!filtered.length){el.innerHTML='<div class="panel empty-state">No topic progress records yet.</div>';return;}
+
+    // Group by student
+    const byStu={};
+    filtered.forEach(r=>{
+      const key=r.student;
+      if(!byStu[key]) byStu[key]={name:r.student_name, stuId:r.student, portions:{},total:0};
+      if(!byStu[key].portions[r.portion_title]) byStu[key].portions[r.portion_title]=[];
+      byStu[key].portions[r.portion_title].push(r);
+      byStu[key].total++;
+    });
+
+    el.innerHTML=Object.values(byStu).map(d=>{
+      const stu = students.find(s=>s.id===d.stuId);
+      const groupName = stu ? (stu.group_name||'') : '';
+      return `
+      <div class="stu-block">
+        <div class="stu-head">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-weight:600;font-size:15px">${esc(d.name)}</span>
+            ${groupName ? `<span class="group-badge">🗂 ${esc(groupName)}</span>` : ''}
+          </div>
+          <span style="font-size:12px;background:#ebf8ff;color:#2b6cb0;padding:3px 10px;border-radius:20px;font-weight:500">${d.total} topics done</span>
+        </div>
+        ${Object.entries(d.portions).map(([pTitle,topics])=>`
+          <div class="portion-section">
+            <div style="font-size:12px;font-weight:600;color:#6c757d;margin-bottom:6px">📂 ${esc(pTitle)}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              ${topics.map(t=>`<span class="chip chip-done">✓ ${esc(t.topic_title)} <span style="font-size:10px;opacity:.7">${t.completed_on}</span></span>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>`;
+    }).join('');
+
+  } else {
+    let url='/progress/?';
+    if (sId) url+=`student=${sId}&`;
+    if (cId) url+=`course=${cId}&`;
+    const records=await apiGet(url);
+    const filtered = gId ? records.filter(r=>groupStudentIds.has(r.student)) : records;
+    if (!filtered.length){el.innerHTML='<div class="panel empty-state">No module progress records yet.</div>';return;}
+
+    const byStu={};
+    filtered.forEach(r=>{
+      if(!byStu[r.student]) byStu[r.student]={name:r.student_name, stuId:r.student, recs:[]};
+      byStu[r.student].recs.push(r);
+    });
+
+    el.innerHTML=Object.values(byStu).map(d=>{
+      const stu = students.find(s=>s.id===d.stuId);
+      const groupName = stu ? (stu.group_name||'') : '';
+      return `
+      <div class="stu-block">
+        <div class="stu-head">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-weight:600;font-size:15px">${esc(d.name)}</span>
+            ${groupName ? `<span class="group-badge">🗂 ${esc(groupName)}</span>` : ''}
+          </div>
+          <span style="font-size:12px;background:#ebf8ff;color:#2b6cb0;padding:3px 10px;border-radius:20px;font-weight:500">${d.recs.length} modules</span>
+        </div>
+        <div style="padding:12px 20px;display:flex;flex-wrap:wrap;gap:6px">
+          ${d.recs.map(r=>`<span class="chip chip-done">✓ ${esc(r.portion_title)} <span style="font-size:10px;opacity:.7">${r.completed_on}</span></span>`).join('')}
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+/* ── Group Bulk Update (from Progress page) ── */
+function openGroupBulk() {
+  const gOpts = groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  const cOpts = courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const today = new Date().toISOString().split('T')[0];
+
+  openModal(`${modalHeader('Group Bulk Progress Update')}
+    <div style="padding:20px 22px">
+      <p style="font-size:13px;color:#6c757d;margin-bottom:16px">Mark a module complete for all students in a group.</p>
+      <form id="bulkForm">
+        ${formField('Group',`<select class="inp" id="bkGroup" required onchange="showGroupMembers(this.value)"><option value="">Select group</option>${gOpts}</select>`,true)}
+        <div id="bkMembersInfo" style="margin-bottom:12px;display:none"></div>
+        ${formField('Course',`<select class="inp" id="bkCourse" onchange="loadBkPortions(this.value)"><option value="">Select course</option>${cOpts}</select>`,true)}
+        ${formField('Module',`<select class="inp" id="bkPortion" name="portion_id" required><option value="">Select course first</option></select>`,true)}
+        ${formField('Completed On',`<input type="date" class="inp" name="completed_on" id="bkDate" value="${today}"/>`,true)}
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px">
+          <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+          <button type="submit" class="btn-primary">Apply to Group</button>
+        </div>
+      </form>
+    </div>`);
+
+  document.getElementById('bulkForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const gId = document.getElementById('bkGroup').value;
+    const portionId = document.getElementById('bkPortion').value;
+    const completedOn = document.getElementById('bkDate').value;
+    if (!gId||!portionId) { showToast('Select group and module.','error'); return; }
+    const res = await apiPost(`/groups/${gId}/bulk_progress/`, {portion_id:portionId, completed_on:completedOn});
+    if (res.ok) { showToast(res.data.message||'Updated!'); closeModal(); loadProgress(); }
+    else showToast('Error updating group.','error');
+  });
+}
+
+function showGroupMembers(gId) {
+  const info = document.getElementById('bkMembersInfo');
+  if (!gId) { info.style.display='none'; return; }
+  const members = students.filter(s=>String(s.group)===String(gId));
+  info.style.display='block';
+  info.innerHTML = `<div style="background:#f0fff4;border:1px solid #9ae6b4;border-radius:8px;padding:10px 14px;font-size:13px;color:#276749">
+    <strong>${members.length} student(s)</strong> will be updated:
+    ${members.length ? members.map(s=>`<span style="display:inline-block;background:#fff;border:1px solid #9ae6b4;border-radius:12px;padding:2px 8px;margin:2px;font-size:12px">${esc(s.full_name)}</span>`).join('') : '<span style="color:#e53e3e"> None in this group yet.</span>'}
+  </div>`;
+}
+
+async function loadBkPortions(cId) {
+  const sel = document.getElementById('bkPortion');
+  if (!cId) { sel.innerHTML='<option value="">Select course first</option>'; return; }
+  const portions = await apiGet(`/portions/?course=${cId}`);
+  sel.innerHTML = portions.map(p=>`<option value="${p.id}">${esc(p.title)}</option>`).join('');
+}
+
+/* ── Individual Mark Progress ── */
+function openMark() {
+  const sOpts=students.map(s=>`<option value="${s.id}">${esc(s.full_name)}${s.group_name?' ('+s.group_name+')':''}</option>`).join('');
+  const cOpts=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const today=new Date().toISOString().split('T')[0];
+  openModal(`${modalHeader('Mark Topic Progress')}
+    <div style="padding:20px 22px">
+      <form id="markForm">
+        ${formField('Student',`<select class="inp" id="mpStu" required><option value="">Select student</option>${sOpts}</select>`,true)}
+        ${formField('Course',`<select class="inp" id="mpCourse"><option value="">Select course</option>${cOpts}</select>`,true)}
+        ${formField('Module',`<select class="inp" id="mpPortion"><option value="">Select course first</option></select>`,true)}
+        <div id="topicWrap" style="display:none;margin-bottom:14px">
+          <label style="display:block;font-size:13px;font-weight:500;margin-bottom:8px;color:#495057">Topics completed <span style="color:#e63946">*</span></label>
+          <div id="topicChecks" style="background:#f8f9fa;border-radius:8px;padding:10px 14px;max-height:200px;overflow-y:auto"></div>
+        </div>
+        ${formField('Completed On',`<input type="date" class="inp" id="mpDate" value="${today}" required/>`,true)}
+        <div id="markErr" style="display:none;background:#fff5f5;border:1px solid #fed7d7;color:#c53030;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:10px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px">
+          <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+          <button type="submit" class="btn-primary">Save Progress</button>
+        </div>
+      </form>
+    </div>`,500);
+
+  document.getElementById('mpCourse').addEventListener('change', async function(){
+    const sel=document.getElementById('mpPortion');
+    document.getElementById('topicWrap').style.display='none';
+    if(!this.value){sel.innerHTML='<option value="">Select course first</option>';return;}
+    const portions=await apiGet(`/portions/?course=${this.value}`);
+    sel.innerHTML=portions.map(p=>`<option value="${p.id}">${esc(p.title)}</option>`).join('');
+    if(portions.length) loadTopicChecks(portions[0].id);
+  });
+  document.getElementById('mpPortion').addEventListener('change',function(){
+    if(this.value) loadTopicChecks(this.value);
+  });
+  document.getElementById('markForm').addEventListener('submit',submitMark);
+}
+
+async function loadTopicChecks(portionId) {
+  const wrap=document.getElementById('topicWrap');
+  const box=document.getElementById('topicChecks');
+  const topics=await apiGet(`/topics/?portion=${portionId}`);
+  if(!topics.length){wrap.style.display='none';return;}
+  box.innerHTML=topics.map(t=>`
+    <label class="topic-check-item">
+      <input type="checkbox" name="topic_ids" value="${t.id}"/>
+      <span>${esc(t.title)}</span>
+    </label>`).join('');
+  wrap.style.display='block';
+}
+
+async function submitMark(e) {
+  e.preventDefault();
+  const stuId=document.getElementById('mpStu').value;
+  const date=document.getElementById('mpDate').value;
+  const checked=[...document.querySelectorAll('#topicChecks input[name=topic_ids]:checked')].map(c=>Number(c.value));
+  const errEl=document.getElementById('markErr');
+  errEl.style.display='none';
+  if(!stuId){errEl.textContent='Select a student.';errEl.style.display='block';return;}
+  if(!checked.length){errEl.textContent='Select at least one topic.';errEl.style.display='block';return;}
+  const res=await apiPost('/topic-progress/',{student:stuId,topic_ids:checked,completed_on:date});
+  if(res.ok){showToast(`${res.data.created||0} topic(s) marked complete!`);closeModal();loadProgress();}
+  else{errEl.textContent='Some topics may already be marked for this student.';errEl.style.display='block';}
+}
+
+init();
+</script>
+</body>
+</html>

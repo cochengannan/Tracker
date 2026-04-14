@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Reports — Student Tracker</title></head>
+<body>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+if (!guardAdmin()) throw '';
+
+async function init() {
+  renderAdminLayout(`
+    <div class="page-header">
+      <div><h1 class="page-title">Reports</h1><p class="page-sub">Generate and download PDF reports</p></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:540px">
+      <div class="panel" style="padding:28px">
+        <h2 style="font-size:16px;font-weight:600;margin-bottom:20px">Generate PDF Report</h2>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:13px;font-weight:500;margin-bottom:6px">Student (blank = all students)</label>
+          <select id="repStu" class="inp"><option value="">All Students</option></select>
+        </div>
+        <div class="g2" style="margin-bottom:20px">
+          <div>
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:6px">Month</label>
+            <select id="repMonth" class="inp">
+              ${['January','February','March','April','May','June','July','August','September','October','November','December']
+                .map((m,i)=>`<option value="${i+1}"${i+1===new Date().getMonth()+1?' selected':''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:6px">Year</label>
+            <select id="repYear" class="inp">
+              ${[2024,2025,2026].map(y=>`<option value="${y}"${y===new Date().getFullYear()?' selected':''}>${y}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <button class="btn-primary" id="dlBtn" style="width:100%;padding:12px;font-size:15px" onclick="download()">⬇ Download PDF Report</button>
+      </div>
+      <div class="panel" style="padding:20px">
+        <div style="font-weight:600;margin-bottom:12px;font-size:14px">What's included</div>
+        ${['Monthly attendance with login/logout times','Presence rate percentage','All completed topics with dates','Per-student breakdown']
+          .map(t=>`<div style="display:flex;gap:8px;font-size:13px;color:#495057;margin-bottom:6px"><span style="color:#2ec4b6">✓</span>${t}</div>`).join('')}
+      </div>
+    </div>
+  `);
+
+  const students = await apiGet('/students/');
+  const sel = document.getElementById('repStu');
+  students.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.id; o.textContent = `${s.full_name} — ${s.enrollment_number}`;
+    sel.appendChild(o);
+  });
+}
+
+async function download() {
+  const btn = document.getElementById('dlBtn');
+  btn.disabled = true; btn.textContent = '⏳ Generating...';
+  const stu = document.getElementById('repStu').value;
+  const month = document.getElementById('repMonth').value;
+  const year = document.getElementById('repYear').value;
+  let url = `${API}/reports/generate/?month=${month}&year=${year}`;
+  if (stu) url += `&student=${stu}`;
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Token ${getToken()}` } });
+    if (!res.ok) { showToast('Failed to generate report.', 'error'); return; }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `report_${month}_${year}.pdf`;
+    a.click();
+    showToast('Report downloaded!');
+  } catch { showToast('Error generating report.', 'error'); }
+  finally { btn.disabled = false; btn.textContent = '⬇ Download PDF Report'; }
+}
+
+init();
+</script>
+</body>
+</html>

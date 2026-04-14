@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Students — Student Tracker</title></head>
+<body>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+if (!guardAdmin()) throw '';
+let students=[], courses=[], groups=[];
+
+async function init() {
+  renderAdminLayout(`
+    <div class="page-header">
+      <div><h1 class="page-title">Students</h1><p class="page-sub" id="subTitle">Loading...</p></div>
+      <button class="btn-primary" onclick="openRegister()">+ Register Student</button>
+    </div>
+    <div style="margin-bottom:16px">
+      <input class="inp" style="max-width:340px" placeholder="Search by name or enrollment number..." oninput="filterStudents(this.value)"/>
+    </div>
+    <div class="panel" id="tableWrap"><div class="empty-state">Loading...</div></div>
+  `);
+  await loadData();
+}
+
+async function loadData() {
+  [students, courses, groups] = await Promise.all([apiGet('/students/'), apiGet('/courses/'), apiGet('/groups/')]);
+  document.getElementById('subTitle').textContent = `${students.length} active students`;
+  renderTable(students);
+}
+
+function renderTable(data) {
+  const el = document.getElementById('tableWrap');
+  if (!data.length) { el.innerHTML='<div class="empty-state">No students found.</div>'; return; }
+  el.innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Enrollment</th><th>Username</th><th>Course</th><th>Group</th><th>Contact</th><th>Joined</th><th>Action</th></tr></thead>
+      <tbody>
+        ${data.map(s=>`<tr>
+          <td style="font-weight:500">${esc(s.full_name)}</td>
+          <td>${esc(s.enrollment_number)}</td>
+          <td><code style="font-size:12px;background:#f0f2f5;padding:2px 6px;border-radius:4px">${esc(s.username)}</code></td>
+          <td>${esc(s.course_name||'—')}</td>
+          <td>${esc(s.group_name||'—')}</td>
+          <td>${esc(s.primary_contact)}</td>
+          <td>${s.date_of_joining}</td>
+          <td><button class="btn-danger" data-id="${s.id}" data-name="${esc(s.full_name)}">Deactivate</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  el.querySelectorAll('[data-id]').forEach(btn =>
+    btn.addEventListener('click', () => deactivate(Number(btn.dataset.id), btn.dataset.name)));
+}
+
+function filterStudents(q) {
+  const f = q.toLowerCase();
+  renderTable(students.filter(s => s.full_name.toLowerCase().includes(f) || s.enrollment_number.toLowerCase().includes(f)));
+}
+
+async function deactivate(id, name) {
+  if (!confirm(`Deactivate ${name}?`)) return;
+  await apiDelete(`/students/${id}/`); showToast(`${name} deactivated.`); loadData();
+}
+
+function openRegister() {
+  const cOpts = courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const gOpts = groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  openModal(`${modalHeader('Register New Student')}
+    <div style="padding:20px 22px">
+      <div id="regErr" style="display:none;background:#fff5f5;border:1px solid #fed7d7;color:#c53030;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px"></div>
+      <form id="regForm">
+        <div class="g2">
+          ${formField('Full Name',`<input class="inp" name="full_name" required/>`,true)}
+          ${formField('Enrollment Number',`<input class="inp" name="enrollment_number" required/>`,true)}
+          ${formField('Username',`<input class="inp" name="username" required placeholder="Student logs in with this"/>`,true)}
+          ${formField('Password',`<input type="password" class="inp" name="password" required placeholder="Min 6 characters"/>`,true)}
+          ${formField('Course',`<select class="inp" name="course" required><option value="">Select course</option>${cOpts}</select>`,true)}
+          ${formField('Group',`<select class="inp" name="group"><option value="">No group</option>${gOpts}</select>`)}
+          ${formField('Primary Contact',`<input class="inp" name="primary_contact" required/>`,true)}
+          ${formField('WhatsApp',`<input class="inp" name="whatsapp_number" required/>`,true)}
+          ${formField('Secondary Contact',`<input class="inp" name="secondary_contact"/>`)}
+          ${formField('Date of Joining',`<input type="date" class="inp" name="date_of_joining" required/>`,true)}
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
+          <button type="button" onclick="closeModal()" style="padding:9px 18px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;cursor:pointer">Cancel</button>
+          <button type="submit" class="btn-primary" id="regSubmit">Register</button>
+        </div>
+      </form>
+    </div>`, 640);
+
+  document.getElementById('regForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = Object.fromEntries(fd.entries());
+    if (!body.group) delete body.group;
+    const btn = document.getElementById('regSubmit');
+    btn.disabled=true; btn.textContent='Registering...';
+    const res = await apiPost('/students/', body);
+    btn.disabled=false; btn.textContent='Register';
+    if (!res.ok) {
+      const msgs = typeof res.data === 'object' ? Object.values(res.data).flat().join(' ') : 'Error registering student.';
+      const errEl = document.getElementById('regErr');
+      errEl.textContent = msgs; errEl.style.display='block';
+    } else {
+      closeModal(); showToast(`${body.full_name} registered successfully!`); loadData();
+    }
+  });
+}
+
+init();
+</script>
+</body>
+</html>

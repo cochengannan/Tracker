@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Attendance — Student Tracker</title></head>
+<body>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+if (!guardAdmin()) throw '';
+let students = [];
+
+async function init() {
+  renderAdminLayout(`
+    <div class="page-header">
+      <div><h1 class="page-title">Attendance</h1><p class="page-sub">Track daily student attendance</p></div>
+      <button class="btn-primary" onclick="markAbsent()">🔔 Mark Absent &amp; Alert</button>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <input type="date" id="dateFilter" class="inp" style="width:auto" value="${new Date().toISOString().split('T')[0]}" onchange="loadAtt()"/>
+      <select id="stuFilter" class="inp" style="width:auto;min-width:200px" onchange="loadAtt()">
+        <option value="">All Students</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:20px">
+      <div class="stat-card" style="border-top:3px solid #4361ee;min-width:100px;padding:12px 18px">
+        <div class="stat-label">Total</div><div class="stat-value" id="cTotal" style="font-size:22px">—</div>
+      </div>
+      <div class="stat-card" style="border-top:3px solid #2ec4b6;min-width:100px;padding:12px 18px">
+        <div class="stat-label">Present</div><div class="stat-value" id="cPresent" style="font-size:22px;color:#2ec4b6">—</div>
+      </div>
+      <div class="stat-card" style="border-top:3px solid #e63946;min-width:100px;padding:12px 18px">
+        <div class="stat-label">Absent</div><div class="stat-value" id="cAbsent" style="font-size:22px;color:#e63946">—</div>
+      </div>
+    </div>
+    <div class="panel" id="tableWrap"><div class="empty-state">Loading...</div></div>
+  `);
+  students = await apiGet('/students/');
+  const sel = document.getElementById('stuFilter');
+  students.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.id; o.textContent = s.full_name; sel.appendChild(o);
+  });
+  loadAtt();
+}
+
+async function loadAtt() {
+  const d = document.getElementById('dateFilter').value;
+  const s = document.getElementById('stuFilter').value;
+  let url = '/attendance/?';
+  if (d) url += `date=${d}&`;
+  if (s) url += `student=${s}&`;
+  document.getElementById('tableWrap').innerHTML = '<div class="empty-state">Loading...</div>';
+  const records = await apiGet(url);
+  document.getElementById('cTotal').textContent = records.length;
+  document.getElementById('cPresent').textContent = records.filter(r=>r.status==='present').length;
+  document.getElementById('cAbsent').textContent = records.filter(r=>r.status==='absent').length;
+  if (!records.length) {
+    document.getElementById('tableWrap').innerHTML = '<div class="empty-state">No records for this selection.</div>'; return;
+  }
+  document.getElementById('tableWrap').innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Student</th><th>Enrollment</th><th>Date</th><th>Status</th><th>Login</th><th>Logout</th></tr></thead>
+      <tbody>${records.map(r=>`<tr>
+        <td style="font-weight:500">${esc(r.student_name)}</td>
+        <td>${esc(r.enrollment_number)}</td>
+        <td>${r.date}</td>
+        <td>${badge(r.status)}</td>
+        <td>${fmtTime(r.login_time)}</td>
+        <td>${fmtTime(r.logout_time)}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+async function markAbsent() {
+  if (!confirm('Mark all students with no login today as absent and send notifications?')) return;
+  const res = await apiPost('/attendance/mark_absent/', {});
+  if (res.ok) { showToast(`Marked ${res.data.marked_absent} students absent.`); loadAtt(); }
+  else showToast('Failed to mark absent.', 'error');
+}
+
+init();
+</script>
+</body>
+</html>
